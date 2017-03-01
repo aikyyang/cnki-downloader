@@ -26,6 +26,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"math/rand"
 )
 
 type CNKIArticleInfo struct {
@@ -906,7 +907,7 @@ func (c *CNKIDownloader) Download(paper *Article) (string, error) {
 	}
 	fullName := filepath.Join(currentDir, paper.Information.Title+".caj")
 
-	fmt.Printf("Downloading... total (%d) bytes\n", info.Size)
+	fmt.Printf("Downloading... total (%d) KB\n", info.Size/1024)
 	err = c.getFile(info.DownloadUrl[0], fullName, info.Size)
 	if err != nil {
 		return "", err
@@ -938,7 +939,7 @@ func printArticles(page int, articles []Article) {
 			color.WhiteString(entry.Information.Title),
 			color.YellowString("%s", source))
 	}
-	fmt.Fprintf(color.Output, "-----------------------------------------------------------(%s)--\n\n", color.MagentaString("page%d", page))
+	fmt.Fprintf(color.Output, "-----------------------------------------------------------(%s)--\n\n", color.MagentaString("page:%d", page))
 }
 
 //
@@ -1023,7 +1024,7 @@ func getUpdateInfo() (*appUpdateInfo, error) {
 func update() (allowContinue bool) {
 
 	allowContinue = true
-	fmt.Println("** Checking update information current: ", VersionString)
+	//fmt.Println("** Checking update information current: ", VersionString)
 
 	//
 	// http query the information
@@ -1033,6 +1034,8 @@ func update() (allowContinue bool) {
 		newVersion := false
 		if info.Major > MajorVersion || (info.Major == MajorVersion && info.Minor > MinorVersion) {
 			newVersion = true
+		} else {
+			fmt.Printf("** Current Version:%s ，ReleaseTime：%s \n", VersionString, info.ReleaseTime)
 		}
 
 		if newVersion {
@@ -1115,6 +1118,8 @@ func update() (allowContinue bool) {
 // lord commander
 //
 func main() {
+	t_2 := time.Duration(rand.Int31n(2))
+	t_10 := time.Duration(rand.Int31n(10))
 	color.Cyan("******************************************************************************\n")
 	color.Cyan("****  Welcome to use CNKI-Downloader, Let's fuck these knowledge mongers  ****\n")
 	color.Cyan("****                            Good luck.                                ****\n")
@@ -1204,18 +1209,20 @@ func main() {
 				{
 					fmt.Fprintf(color.Output, "Support follow commands:\n")
 					fmt.Fprintf(color.Output, "\t %s: show page's information\n", color.YellowString("INFO"))
-					fmt.Fprintf(color.Output, "\t %s: turn to next page\n", color.YellowString("NEXT"))
+					fmt.Fprintf(color.Output, "\t %s: turn to next page\n", color.YellowString("NEXT OR Return"))
 					fmt.Fprintf(color.Output, "\t %s: turn to previous page\n", color.YellowString("PREV"))
-					fmt.Fprintf(color.Output, "\t  %s: (GET ID), download the specified item in this page, eg: GET 1, GET 14...etc\n", color.YellowString("GET"))
+					fmt.Fprintf(color.Output, "\t %s: (GET ID), download the specified item in this page, eg: GET 1, GET 14...etc\n", color.YellowString("GET"))
 					fmt.Fprintf(color.Output, "\t %s: (SHOW ID), show the information about specified item, eg: SHOW 2, SHOW 9...etc\n", color.YellowString("SHOW"))
 					fmt.Fprintf(color.Output, "\t%s: break out, and search the other papers\n", color.YellowString("BREAK"))
+					fmt.Fprintf(color.Output, "\t%s: 【Note】download the article in current page\n", color.RedString("PICK"))
+					fmt.Fprintf(color.Output, "\t%s: 【Note】download all of the article \n", color.RedString("ALL"))
 				}
 			case "info":
 				{
 					color.White("  page size: %d\n page index: %d\ntotal pages: %d\n", psize, pindex, pcount)
 				}
-			case "next":
-				{
+			case "next",""://增加回车直接显示下一页				
+{
 					next_page, err := downloader.SearchNext(pindex + 1)
 					if err != nil {
 						fmt.Fprintf(color.Output, "Next page is invalid (%s)\n", color.RedString(err.Error()))
@@ -1302,6 +1309,54 @@ func main() {
 
 					fmt.Fprintf(color.Output, "Download success (%s) \n", color.GreenString(path))
 				}
+			case "pick":
+				{
+
+					entries := ctx.GetPageData()
+					for id := 0; id < 20; id++ {
+						color.Green("Batch download %d pages of the %d documents\n", pindex, id+1)
+						color.Cyan("********      Article name:[%s]\n", entries[id].Information.Title)
+						path, err := downloader.Download(&entries[id])
+
+						if err != nil {
+							fmt.Fprintf(color.Output, "Download failed: %s\n", color.RedString(err.Error()))
+							time.Sleep(t_10)
+						} else {
+
+							fmt.Fprintf(color.Output, "Download success：%s \n", color.GreenString(path))
+
+							time.Sleep(t_2)
+						}
+					}
+					fmt.Println(color.Output, "All of article in this page have been downloaded \n")
+				}
+			case "all":
+				{
+
+					for pindex := 1; ; pindex++ {
+						ctx, err := downloader.SearchNext(pindex)
+						if err != nil {
+							fmt.Println(color.Output, "All of article have been downloaded \n")
+
+						} else {
+							entries := ctx.GetPageData()
+							for id := 0; id < 20; id++ {
+								color.Green("Batch download %d pages of the %d documents\n", pindex, id+1)
+								color.Cyan("********      Article name:[%s]\n", entries[id].Information.Title)
+								path, err := downloader.Download(&entries[id])
+								if err != nil {
+									fmt.Fprintf(color.Output, "Download failed: %s\n", color.RedString(err.Error()))
+									time.Sleep(t_10)
+
+								} else {
+									fmt.Fprintf(color.Output, "Download success： (%s) \n", color.GreenString(path))
+									time.Sleep(t_2)//延时部分有问题									
+								}
+							}
+
+						}
+					}
+				}
 			case "break":
 				{
 					downloader.SearchStop()
@@ -1313,6 +1368,7 @@ func main() {
 			if out {
 				break
 			}
+			color.Yellow("Done.In the new search before, must first execute"break" commands;repeat commands use:↑。\n\n")
 		}
 	}
 
