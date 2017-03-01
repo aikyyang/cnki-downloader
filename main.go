@@ -1337,7 +1337,7 @@ func main() {
 						ctx, err := downloader.SearchNext(pindex)
 						if err != nil {
 							fmt.Println(color.Output, "All of article have been downloaded \n")
-
+							break
 						} else {
 							entries := ctx.GetPageData()
 							for id := 0; id < 20; id++ {
