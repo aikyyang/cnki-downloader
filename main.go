@@ -10,11 +10,9 @@ import (
 	"encoding/json"
 	"encoding/xml"
 	"fmt"
-	"github.com/axgle/mahonia"
-	"github.com/fatih/color"
-	"gopkg.in/cheggaaa/pb.v1"
 	"io"
 	"io/ioutil"
+	"math/rand"
 	"net/http"
 	"net/url"
 	"os"
@@ -26,6 +24,10 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/axgle/mahonia"
+	"github.com/fatih/color"
+	"gopkg.in/cheggaaa/pb.v1"
 )
 
 type CNKIArticleInfo struct {
@@ -110,10 +112,10 @@ type appUpdateInfo struct {
 
 const (
 	MajorVersion         = 0
-	MinorVersion         = 7
-	VersionString        = "0.7-alpha"
+	MinorVersion         = 8
+	VersionString        = "0.8-alpha"
 	VersionCheckUrl      = "https://raw.githubusercontent.com/amyhaber/cnki-downloader/master/last-release.json"
-	FixedDownloadViewUrl = "https://github.com/amyhaber/cnki-downloader#download"
+	FixedDownloadViewUrl = "https://github.com/amyhaber/cnki-downloader"
 	MaxDownloadThread    = 4
 )
 
@@ -184,6 +186,18 @@ var (
 		OrderBySubject:        "dc:title",
 	}
 )
+
+//
+// replace all illegal chars to a underline char
+//
+func makeSafeFileName(fileName string) string {
+	return strings.Map(func(r rune) rune {
+		if strings.IndexRune(`/\:*?"><|`, r) != -1 {
+			return '_'
+		}
+		return r
+	}, fileName)
+}
 
 //
 // get input string from console
@@ -884,13 +898,13 @@ func (c *CNKIDownloader) getInfoURL(instance string) (string, error) {
 //
 func (c *CNKIDownloader) Download(paper *Article) (string, error) {
 
-	url, err := c.getInfoURL(paper.Instance)
+	infoUrl, err := c.getInfoURL(paper.Instance)
 	if err != nil {
 		return "", err
 	}
 	fmt.Println("Document info url confirmed")
 
-	info, err := c.getInfo(url)
+	info, err := c.getInfo(infoUrl)
 	if err != nil {
 		return "", err
 	}
@@ -904,7 +918,7 @@ func (c *CNKIDownloader) Download(paper *Article) (string, error) {
 	if err != nil {
 		return "", nil
 	}
-	fullName := filepath.Join(currentDir, paper.Information.Title+".caj")
+	fullName := filepath.Join(currentDir, makeSafeFileName(paper.Information.Title)+".caj")
 
 	fmt.Printf("Downloading... total (%d) bytes\n", info.Size)
 	err = c.getFile(info.DownloadUrl[0], fullName, info.Size)
@@ -938,7 +952,7 @@ func printArticles(page int, articles []Article) {
 			color.WhiteString(entry.Information.Title),
 			color.YellowString("%s", source))
 	}
-	fmt.Fprintf(color.Output, "-----------------------------------------------------------(%s)--\n\n", color.MagentaString("page%d", page))
+	fmt.Fprintf(color.Output, "-----------------------------------------------------------(%s)--\n\n", color.MagentaString("page:%d", page))
 }
 
 //
@@ -1114,7 +1128,9 @@ func update() (allowContinue bool) {
 //
 // lord commander
 //
+
 func main() {
+
 	color.Cyan("******************************************************************************\n")
 	color.Cyan("****  Welcome to use CNKI-Downloader, Let's fuck these knowledge mongers  ****\n")
 	color.Cyan("****                            Good luck.                                ****\n")
@@ -1214,7 +1230,7 @@ func main() {
 				{
 					color.White("  page size: %d\n page index: %d\ntotal pages: %d\n", psize, pindex, pcount)
 				}
-			case "next":
+			case "next", "":
 				{
 					next_page, err := downloader.SearchNext(pindex + 1)
 					if err != nil {
@@ -1302,6 +1318,55 @@ func main() {
 
 					fmt.Fprintf(color.Output, "Download success (%s) \n", color.GreenString(path))
 				}
+			case "pick":
+				{
+
+					entries := ctx.GetPageData()
+					for id := 0; id < 20; id++ {
+						color.Magenta("准备下载第%d页的第%d个文档\n", pindex, id+1)
+						color.Cyan("********      文档名是:[%s]\n", entries[id].Information.Title)
+						path, err := downloader.Download(&entries[id])
+
+						if err != nil {
+							fmt.Fprintf(color.Output, "下载失败: %s\n", color.RedString(err.Error()))
+							rand_sleep(10)
+						} else {
+
+							fmt.Fprintf(color.Output, "文档已成功保存到：%s \n", color.GreenString(path))
+
+							rand_sleep(5)
+						}
+					}
+					fmt.Println(color.Output, "本页内容已全部下载完成 \n")
+				}
+			case "all":
+				{
+
+					for pindex := 1; ; pindex++ {
+						ctx, err := downloader.SearchNext(pindex)
+						if err != nil {
+							fmt.Println(color.Output, "已下载全部页 \n")
+							break
+						} else {
+							entries := ctx.GetPageData()
+							for id := 0; id < 20; id++ {
+								color.Green("准备下载第%d页的第%d个文档\n", pindex, id+1)
+								color.Cyan("********      文档名是:[%s]\n", entries[id].Information.Title)
+								path, err := downloader.Download(&entries[id])
+								if err != nil {
+									fmt.Fprintf(color.Output, "下载失败: %s\n", color.RedString(err.Error()))
+									rand_sleep(12)
+
+								} else {
+									fmt.Fprintf(color.Output, "文档已成功保存到： (%s) \n", color.GreenString(path))
+									rand_sleep(5)
+									//执行此段代码时会等待两秒
+								}
+							}
+
+						}
+					}
+				}
 			case "break":
 				{
 					downloader.SearchStop()
@@ -1309,7 +1374,6 @@ func main() {
 					out = true
 				}
 			}
-
 			if out {
 				break
 			}
@@ -1317,4 +1381,10 @@ func main() {
 	}
 
 	return
+}
+func rand_sleep(num int) {
+	rand.Seed(time.Now().UnixNano())
+	x := rand.Intn(num) + 3
+	color.Green("为防封IP，大约在%d秒后下载另一文件，请等待...\n", x)
+	time.Sleep(time.Duration(x) * time.Second)
 }
